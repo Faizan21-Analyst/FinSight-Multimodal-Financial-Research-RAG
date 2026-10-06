@@ -1,0 +1,18 @@
+# fiscal_year_end is approximate; exact period dates come from XBRL.
+companies:
+  - ticker: NVDA
+    name: NVIDIA Corporation
+    cik: "0001045810"
+    fiscal_year_end: "last Sunday of January"
+  - ticker: AMD
+    name: Advanced Micro Devices, Inc.
+    cik: "0000002488"
+    fiscal_year_end: "last Saturday of December"
+  - ticker: AAPL
+    name: Apple Inc.
+    cik: "0000320193"
+    fiscal_year_end: "last Saturday of September"
+  - ticker: TSLA
+    name: Tesla, Inc.
+    cik: "0001318605"
+    fiscal_year_end: "December 31"

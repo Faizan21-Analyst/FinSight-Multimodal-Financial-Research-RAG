@@ -1,0 +1,35 @@
+[project]
+name = "finsight"
+version = "0.1.0"
+description = "Multimodal financial research agent"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+# Install when you reach these modules:
+retrieval = ["qdrant-client>=1.9", "psycopg[binary]>=3.1", "rank-bm25>=0.2"]
+parsing = ["pymupdf>=1.24", "docling>=2.0", "beautifulsoup4>=4.12", "lxml>=5.0"]
+agents = ["langgraph>=0.2", "langfuse>=2.0", "anthropic>=0.30"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finsight"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
