@@ -28,7 +28,7 @@ packages = ["src/finsight"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 
 [tool.ruff]
 line-length = 100

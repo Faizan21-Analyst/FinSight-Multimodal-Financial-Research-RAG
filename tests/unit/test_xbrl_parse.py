@@ -106,3 +106,25 @@ def test_parse_instant_and_eps_units():
 
 def test_parse_empty_returns_empty():
     assert parse_companyfacts({"cik": 1, "facts": {}}, "X") == []
+
+
+def test_original_vs_latest_and_restated_flag():
+    facts = parse_companyfacts(COMPANYFACTS, "NVDA")
+    fy2024, fy2025 = _by(facts, "revenue", "FY")
+    # FY2024: first reported 60,922 (A1, Feb 2024), re-reported 60,923 (A2, Feb 2025)
+    assert fy2024.restated is True
+    assert fy2024.value == 60923000000 and fy2024.accession == "A2"
+    assert fy2024.original_value == 60922000000 and fy2024.original_accession == "A1"
+    assert fy2024.original_form == "10-K" and str(fy2024.original_filed) == "2024-02-21"
+    # FY2025: reported once, so original == latest and not restated
+    assert fy2025.restated is False
+    assert fy2025.original_value == fy2025.value and fy2025.original_accession == fy2025.accession
+
+
+def test_identical_rereports_are_not_restatements():
+    cf = {"cik": 1, "facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+        _entry("2023-01-30", "2024-01-28", 100, "10-K", "2024-02-21", "A1"),
+        _entry("2023-01-30", "2024-01-28", 100, "10-K", "2025-02-26", "A2"),
+    ]}}}}}
+    f = parse_companyfacts(cf, "X")[0]
+    assert f.restated is False and f.accession == "A2" and f.original_accession == "A1"

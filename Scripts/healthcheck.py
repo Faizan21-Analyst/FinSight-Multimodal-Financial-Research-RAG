@@ -5,6 +5,7 @@ import sys
 
 import httpx
 
+sys.path.insert(0, ".")
 sys.path.insert(0, "src")
 from finsight.core.config import get_settings  # noqa: E402
 

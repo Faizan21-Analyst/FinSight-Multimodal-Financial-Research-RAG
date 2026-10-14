@@ -29,3 +29,39 @@ def test_row_to_evidence_is_traceable_and_stable():
     assert "8675000000" in ev.content and "10-K" in ev.content and "0001045810-24-000029" in ev.content
     assert ev.source.ticker == "NVDA" and ev.source.fiscal_year == 2024 and ev.source.fiscal_period == "FY"
     assert row_to_evidence(ROW).evidence_id == ev.evidence_id
+
+
+RESTATED = {**ROW, "value": Decimal("9000000000"), "accession": "0001045810-25-000020",
+            "form": "10-K", "filed": date(2025, 2, 26), "restated": True,
+            "original_value": Decimal("8675000000"), "original_accession": "0001045810-24-000029",
+            "original_form": "10-K", "original_filed": date(2024, 2, 21)}
+UNRESTATED = {**ROW, "accession": "0001045810-26-000021", "filed": date(2026, 2, 25),
+              "restated": False, "original_value": Decimal("8675000000"),
+              "original_accession": "0001045810-24-000029", "original_form": "10-K",
+              "original_filed": date(2024, 2, 21)}
+
+
+def test_unrestated_value_cites_the_original_filing():
+    ev = row_to_evidence(UNRESTATED)
+    assert "0001045810-24-000029" in ev.content and "0001045810-26-000021" not in ev.content
+    assert "NOTE" not in ev.content
+    assert ev.source.doc_id.endswith("0001045810-24-000029")
+
+
+def test_restated_value_cites_latest_filing_and_notes_the_original():
+    ev = row_to_evidence(RESTATED)
+    assert "$9.000 billion" in ev.content and "0001045810-25-000020" in ev.content
+    assert "NOTE: restated" in ev.content and "$8.675 billion" in ev.content
+    assert "0001045810-24-000029" in ev.content          # original accession mentioned in the note
+
+
+def test_as_reported_returns_original_value_and_filing():
+    ev = row_to_evidence(RESTATED, as_reported=True)
+    assert "$8.675 billion" in ev.content and "0001045810-24-000029" in ev.content
+    assert "NOTE" not in ev.content and "$9.000" not in ev.content
+    assert row_to_evidence(RESTATED).evidence_id != ev.evidence_id
+
+
+def test_legacy_rows_without_original_columns_still_work():
+    ev = row_to_evidence(ROW)                              # ROW has no original_* keys
+    assert "8675000000" in ev.content and "0001045810-24-000029" in ev.content

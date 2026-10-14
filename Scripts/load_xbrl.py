@@ -35,7 +35,8 @@ if __name__ == "__main__":
         n = load_facts(s.postgres_dsn, facts)
         by_type = Counter(f.period_type for f in facts)
         by_metric = Counter(f.metric for f in facts)
-        log.info("%s: loaded %d facts %s", c.ticker, n, dict(by_type))
+        n_restated = sum(f.restated for f in facts)
+        log.info("%s: loaded %d facts %s, %d restated", c.ticker, n, dict(by_type), n_restated)
         missing = sorted(set(METRICS) - set(by_metric))
         if missing:
             log.warning("%s: no data for metrics: %s", c.ticker, ", ".join(missing))

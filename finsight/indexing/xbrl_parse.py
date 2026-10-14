@@ -16,7 +16,7 @@ Gotchas this module handles (log them in docs/failures.md as you meet them):
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 # metric name -> us-gaap tags, in priority order
@@ -58,6 +58,13 @@ class Fact:
     accession: str
     form: str
     filed: date
+    # Point-in-time info: the same period is re-reported in later filings, sometimes restated.
+    # value/accession/form/filed above = LATEST report; original_* = FIRST report.
+    restated: bool = False
+    original_value: float | None = None
+    original_accession: str | None = None
+    original_form: str | None = None
+    original_filed: date | None = None
 
 
 def classify_period(start: date | None, end: date) -> str | None:
@@ -124,8 +131,10 @@ def parse_companyfacts(
         return []
     fye = infer_fye_month(annual_ends)
 
-    # pass 2: de-duplicate -> best (lowest priority index, then latest filed) per period
+    # pass 2: de-duplicate. Keep the LATEST report (preferred tag, then newest filing) as the
+    # current value, and remember the FIRST report (earliest filing) as the original.
     best: dict[tuple, tuple[tuple, Fact]] = {}
+    first: dict[tuple, tuple[tuple, float, str, str, date]] = {}
     for metric, priority, tag, unit, ptype, start, end, e in raw:
         filed = date.fromisoformat(e["filed"])
         fy, q = fiscal_position(end, fye)
@@ -149,8 +158,18 @@ def parse_companyfacts(
         rank = (priority, -filed.toordinal())
         if key not in best or rank < best[key][0]:
             best[key] = (rank, fact)
+        first_rank = (filed.toordinal(), priority)
+        if key not in first or first_rank < first[key][0]:
+            first[key] = (first_rank, e["val"], e["accn"], e["form"], filed)
 
+    facts = []
+    for key, (_, fact) in best.items():
+        _, ov, oaccn, oform, ofiled = first[key]
+        facts.append(replace(
+            fact, restated=(ov != fact.value), original_value=ov,
+            original_accession=oaccn, original_form=oform, original_filed=ofiled,
+        ))
     return sorted(
-        (f for _, f in best.values()),
+        facts,
         key=lambda f: (f.metric, f.period_type, f.period_end),
     )
