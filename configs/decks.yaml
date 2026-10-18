@@ -1,0 +1,12 @@
+# Investor decks to download into data/raw/decks/ (run: python scripts/fetch_decks.py)
+# name = TICKER_FY<fiscal year the year ENDS in>_<Q1-Q4>[_free-text]   (see finsight/vision/page_renderer.py)
+# Add more entries by pasting the direct PDF link from the company's investor-relations site.
+decks:
+  # AMD: official earnings slides, 27 slides with charts and tables. Best deck for chart tests.
+  - name: AMD_FY2026_Q2_earnings-slides
+    url: "https://d1io3yog0oux5.cloudfront.net/_e2c62cd7984d5a7aa5d8b8e4193bc59a/amd/db/841/9237/presentation/AMD+Q2+2026+Earnings+Slides+FINAL.pdf"
+
+  # NVIDIA: CFO commentary (tables and text; NVIDIA's results PDF has few charts).
+  # Quarter ended July 26, 2026 = Q2 of fiscal 2027.
+  - name: NVDA_FY2027_Q2_cfo-commentary
+    url: "https://s201.q4cdn.com/141608511/files/doc_financials/2027/Q227/Q2FY27-CFO-Commentary.pdf"

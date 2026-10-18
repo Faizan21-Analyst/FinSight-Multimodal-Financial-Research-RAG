@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     postgres_db: str = "finsight"
     postgres_user: str = "finsight"
     postgres_password: str = "finsight"
-    anthropic_api_key: str = ""
+    groq_api_key: str = ""
     log_level: str = "INFO"
     data_dir: Path = Path("data")
     cache_dir: Path = Path("data/processed/llm_cache")

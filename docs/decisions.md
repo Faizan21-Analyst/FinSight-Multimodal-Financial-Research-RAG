@@ -16,3 +16,6 @@ Official, free, reproducible, and provides structured XBRL data alongside filing
 ## 006: One collection per embedding model, so Module 5 can compare models without rebuilding.
 
 ## 007: Chunks are embedded with a “ticker | form | FY | section” header, but stored clean.
+
+## 008: Groq (free tier) is the LLM/VLM provider instead of Anthropic
+Cost. Text generation and chart reading both use Qwen 3.8 27B (`qwen/qwen3.8-27b`, a multimodal preview model), because Groq's earlier vision model (Llama 4 Scout) and Qwen3-32B are no longer listed. Instruct mode (`reasoning_effort: none`) is used for extraction and JSON output. Called over plain httpx (OpenAI-compatible API), no SDK, with disk caching and 429 backoff because the free tier is rate limited. Trade-off: weaker chart reading than frontier models, so extracted values carry a `values_are_estimates` flag and are always checked against XBRL in Module 10.

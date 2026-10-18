@@ -3,8 +3,8 @@ models:
   embedding: BAAI/bge-small-en-v1.5
   reranker: BAAI/bge-reranker-v2-m3
   visual_retriever: vidore/colqwen2-v1.0
-  llm_default: claude-sonnet-4-5       # answer generation, verification
-  llm_small: claude-haiku-4-5          # routing, grading
+  llm_default: qwen/qwen3.8-27b          # Groq (preview): answer generation, verification
+  llm_small: qwen/qwen3.8-27b            # Groq: routing, grading (use reasoning_effort: none for speed)
 
 chunking:
   max_tokens: 512
@@ -24,3 +24,22 @@ agent:
 qdrant:
   text_collection: finsight_text
   visual_collection: finsight_pages
+
+vision:
+  decks_dir: data/raw/decks          # put TICKER_FY2025_Q4.pdf files here
+  pages_dir: data/processed/pages    # rendered PNGs + pages.jsonl manifest
+  render_dpi: 120
+  vlm_model: qwen/qwen3.8-27b   # Groq multimodal (preview): chart -> structured data
+  vlm_extra_body:               # request params merged into the API call
+    reasoning_effort: none      # instruct mode: no thinking tokens, reply is just the JSON
+    response_format: {type: json_object}
+    temperature: 0.2
+  vlm_base_url: ""      # empty = Groq. Local Qwen-VL via Ollama: http://localhost:11434/v1 (set vlm_model: qwen2.5vl:7b, vlm_extra_body: {})
+  top_k: 5
+
+llm:                      # text LLM client (finsight/llm/client.py)
+  base_url: ""            # empty = Groq
+  temperature: 0.2
+  max_tokens: 1024
+  extra_body:
+    reasoning_effort: none   # Qwen 3.8 instruct mode: no thinking tokens. Remove for non-Qwen models.
