@@ -1,6 +1,6 @@
 """Corrective retrieval loop (LangGraph).
 
-    plan -> retrieve -> grade --(good enough, or out of iterations)--> answer -> END
+    plan -> retrieve -> grade --(good enough, out of iterations, or stalled)--> answer -> END
                           ^            |
                           +-- rewrite <-+ (weak)
 
@@ -9,6 +9,7 @@
 * grade    : EvidenceGrader scores sufficiency (threshold from settings: agent.grader_threshold)
 * rewrite  : use the grader's rewritten query; if almost nothing came back, also drop the fiscal-year
              filter (a wrong year inference is the usual cause of an empty result)
+* stall    : if a retry adds no new evidence, stop: another round would repeat itself
 * answer   : optional; one LLM call over the labelled evidence. Skipped when no answer LLM is given.
 Every step appends a record to `trace`, returned with the result, so a run can be audited.
 """
@@ -49,6 +50,8 @@ class AgentState(TypedDict, total=False):
     package: EvidencePackage
     grade: GradeResult
     iteration: int
+    new_items: int
+    verified: Any
     answer: str
     trace: list[dict]
 
@@ -61,6 +64,7 @@ class AgentResult:
     iterations: int
     trace: list[dict] = field(default_factory=list)
     answer: str = ""
+    verified: Any = None   # VerifiedAnswer when a verifier is configured
     seconds: float = 0.0
 
 
@@ -77,6 +81,7 @@ class FinSightAgent:
         sql=None,                  # SqlRetriever-like: .get_metric(ticker, metric, fiscal_year)
         visual: VisualSearch | None = None,
         answer_llm=None,           # GroqLLM-like: .complete(prompt, system)
+        verifier=None,             # ClaimVerifier-like: .verify(question, answer, package, grade_score, threshold)
         max_iterations: int = 3,
         threshold: float = 0.6,
         per_query_limit: int = 8,
@@ -84,7 +89,7 @@ class FinSightAgent:
         max_chars: int = 12_000,
     ):
         self.text, self.sql, self.visual = text, sql, visual
-        self.grader, self.answer_llm = grader, answer_llm
+        self.grader, self.answer_llm, self.verifier = grader, answer_llm, verifier
         self.max_iterations, self.threshold = max_iterations, threshold
         self.per_query_limit, self.max_items, self.max_chars = per_query_limit, max_items, max_chars
         self.graph = self._build()
@@ -104,6 +109,7 @@ class FinSightAgent:
             state, step="plan", intent=plan.intent.value, tickers=plan.tickers, years=plan.fiscal_years,
             metrics=plan.metrics, retrievers=plan.retrievers,
             subqueries=len(build_subqueries(plan)), sql_lookups=len(sql_requests(plan)),
+            sql_enabled=self.sql is not None,
         )
         return {"plan": plan, "iteration": 0, "relax_years": False, "query_text": None,
                 "results": {}, "trace": trace}
@@ -148,14 +154,20 @@ class FinSightAgent:
                     continue
                 if item is not None:
                     found.append(item)
+                else:
+                    errors.append(f"sql {r.ticker}/{r.metric}/{r.fiscal_year}: no row")
             results["sql"] = _merge(results.get("sql", []), found)
             counts["sql"] = len(found)
 
         package = assemble(results, max_items=self.max_items, max_chars=self.max_chars)
         iteration = state.get("iteration", 0) + 1
+        before = {i.evidence_id for i in state["package"].items} if "package" in state else set()
+        new_items = len({i.evidence_id for i in package.items} - before)
         trace = self._log(state, step="retrieve", iteration=iteration, counts=counts,
-                          package_items=len(package), relaxed_years=relax, errors=errors)
-        return {"results": results, "package": package, "iteration": iteration, "trace": trace}
+                          package_items=len(package), new_items=new_items, relaxed_years=relax,
+                          errors=errors)
+        return {"results": results, "package": package, "iteration": iteration,
+                "new_items": new_items, "trace": trace}
 
     def _grade(self, state: AgentState) -> AgentState:
         g = self.grader.grade(state["plan"], state["package"])
@@ -166,6 +178,8 @@ class FinSightAgent:
     def _decide(self, state: AgentState) -> str:
         if state["grade"].score >= self.threshold or state["iteration"] >= self.max_iterations:
             return "answer"
+        if state["iteration"] >= 2 and state.get("new_items", 1) == 0:
+            return "answer"  # the retry found nothing new: more rounds would repeat themselves
         return "rewrite"
 
     def _rewrite(self, state: AgentState) -> AgentState:
@@ -189,6 +203,17 @@ class FinSightAgent:
                           iterations=state["iteration"])
         return {"answer": text, "trace": trace}
 
+    def _verify(self, state: AgentState) -> AgentState:
+        v = None
+        if self.verifier is not None and state.get("answer"):
+            v = self.verifier.verify(state["question"], state["answer"], state["package"],
+                                     grade_score=state["grade"].score, threshold=self.threshold)
+        trace = self._log(state, step="verify", verified=v is not None,
+                          verdict=v.answer.verdict.value if v and v.answer.verdict else None,
+                          confidence=v.answer.confidence.value if v else None,
+                          claims=len(v.checks) if v else 0)
+        return {"verified": v, "trace": trace}
+
     # ---- graph ------------------------------------------------------------------------
 
     def _build(self):
@@ -203,7 +228,9 @@ class FinSightAgent:
         g.add_edge("retrieve", "grade")
         g.add_conditional_edges("grade", self._decide, {"answer": "answer", "rewrite": "rewrite"})
         g.add_edge("rewrite", "retrieve")
-        g.add_edge("answer", END)
+        g.add_node("verify", self._verify)
+        g.add_edge("answer", "verify")
+        g.add_edge("verify", END)
         return g.compile()
 
     def run(self, question: str) -> AgentResult:
@@ -212,4 +239,5 @@ class FinSightAgent:
         return AgentResult(
             plan=s["plan"], package=s["package"], grade=s["grade"], iterations=s["iteration"],
             trace=s["trace"], answer=s.get("answer", ""), seconds=time.time() - t0,
+            verified=s.get("verified"),
         )

@@ -164,7 +164,7 @@ class GroqVLM:
         model: str,
         api_key: str = "",
         cache: DiskCache | None = None,
-        max_tokens: int = 2000,
+        max_tokens: int = 900,  # Groq free tier caps this model at 1000 output tokens/minute
         retries: int = 4,
         timeout: float = 90.0,
         client: httpx.Client | None = None,
@@ -242,7 +242,9 @@ class GroqVLM:
         resp = None
         for attempt in range(self.retries + 1):
             resp = client.post(self.url, json=body, headers=headers)
-            if resp.status_code not in (429, 500, 502, 503, 504):
+            if resp.status_code not in (429, 500, 502, 503, 504) or (
+                resp.status_code == 429 and "too large" in resp.text.lower()  # retrying cannot help
+            ):
                 break
             if attempt < self.retries:
                 try:

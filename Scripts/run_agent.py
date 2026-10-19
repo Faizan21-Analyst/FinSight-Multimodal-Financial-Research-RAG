@@ -18,6 +18,7 @@ from finsight.agents.graph import FinSightAgent  # noqa: E402
 from finsight.agents.grader import EvidenceGrader  # noqa: E402
 from finsight.core.config import get_settings, load_app_config  # noqa: E402
 from finsight.indexing.embedders import build_embedder, collection_name  # noqa: E402
+from finsight.generation.claim_verifier import ClaimVerifier  # noqa: E402
 from finsight.llm.client import build_llm  # noqa: E402
 from finsight.retrieval.text_retriever import TextRetriever  # noqa: E402
 
@@ -27,6 +28,9 @@ if __name__ == "__main__":
     p.add_argument("--no-llm", action="store_true", help="heuristic grader only")
     p.add_argument("--sql", action="store_true", help="enable exact XBRL lookups (needs Postgres)")
     p.add_argument("--answer", action="store_true", help="generate a cited answer")
+    p.add_argument("--verify", action="store_true", help="also check every claim and citation (implies --answer)")
+    p.add_argument("--answer-text", help="demo: verify THIS answer against the retrieved evidence instead of generating one "
+                                         "(try a wrong number, a wrong [E#], or a wrong comparison). Implies --verify.")
     p.add_argument("--device")
     a = p.parse_args()
 
@@ -48,11 +52,22 @@ if __name__ == "__main__":
             sys.exit("no Postgres DSN found in settings (looked for postgres_dsn / database_url / pg_dsn)")
         sql = SqlRetriever(dsn)
 
+    stub = None
+    if a.answer_text:
+        from finsight.llm.client import LLMResult
+
+        class _Stub:
+            def complete(self, prompt, system=None, **kw):
+                return LLMResult(a.answer_text)
+
+        stub, a.verify = _Stub(), True
+
     agent = FinSightAgent(
         text=text,
         grader=EvidenceGrader(None if a.no_llm else build_llm("small")),
         sql=sql,
-        answer_llm=build_llm("default") if a.answer else None,
+        answer_llm=stub or (build_llm("default") if (a.answer or a.verify) else None),
+        verifier=ClaimVerifier(None if a.no_llm else build_llm("small")) if a.verify else None,
         max_iterations=ag["max_iterations"],
         threshold=ag["grader_threshold"],
     )
@@ -71,3 +86,5 @@ if __name__ == "__main__":
               f"({item.modality.value}): {item.content[:110]!r}")
     if res.answer:
         print("\n--- answer ---\n" + res.answer)
+    if res.verified is not None:
+        print("\n--- verification ---\n" + res.verified.summary())

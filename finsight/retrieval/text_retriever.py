@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from finsight.core.exceptions import RetrievalError
 from finsight.core.schemas import DocType, EvidenceItem, Modality, SourceRef
@@ -97,6 +97,10 @@ class TextRetriever:
                 self.collection, query=query, using=using, limit=limit,
                 query_filter=flt, with_payload=True,
             )
+        except ResponseHandlingException as e:
+            raise RetrievalError(
+                f"Cannot reach Qdrant ({e}). Is it running? Try: docker compose up -d qdrant"
+            ) from e
         except (UnexpectedResponse, ValueError) as e:
             raise RetrievalError(
                 f"Qdrant query failed on {self.collection!r} ({e}). "

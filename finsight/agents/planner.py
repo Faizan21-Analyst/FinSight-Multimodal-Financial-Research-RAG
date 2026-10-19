@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from finsight.agents.router import Intent, QueryPlan
+from finsight.agents.router import Intent, QueryPlan, extract_tickers
 from finsight.retrieval.text_retriever import SearchFilter
 
 
@@ -35,10 +35,19 @@ class SqlRequest:
 
 
 def build_subqueries(plan: QueryPlan, text: str | None = None) -> list[SubQuery]:
-    """`text` overrides the question wording (used when the agent rewrites the query)."""
+    """`text` overrides the question wording (used when the agent rewrites the query).
+
+    For per-company sub-queries a rewrite only replaces the wording of the company it is about:
+    a rewrite that names NVIDIA must not be run for AMD. Companies the rewrite does not name
+    keep the original question (a rewrite naming no company applies to all).
+    """
     q = text or plan.question
     if plan.intent in (Intent.COMPARISON, Intent.CROSS_MODAL) and len(plan.tickers) >= 2:
-        return [SubQuery(q, (t,), plan.fiscal_years) for t in plan.tickers]
+        named = extract_tickers(q) if text else ()
+        return [
+            SubQuery(q if (not named or t in named) else plan.question, (t,), plan.fiscal_years)
+            for t in plan.tickers
+        ]
     return [SubQuery(q, plan.tickers, plan.fiscal_years)]
 
 

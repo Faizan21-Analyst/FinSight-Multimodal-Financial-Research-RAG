@@ -40,6 +40,6 @@ vision:
 llm:                      # text LLM client (finsight/llm/client.py)
   base_url: ""            # empty = Groq
   temperature: 0.2
-  max_tokens: 1024
+  max_tokens: 900         # Groq free tier: 1000 output tokens/minute for this model
   extra_body:
     reasoning_effort: none   # Qwen 3.8 instruct mode: no thinking tokens. Remove for non-Qwen models.

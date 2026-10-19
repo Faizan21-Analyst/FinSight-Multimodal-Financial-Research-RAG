@@ -69,6 +69,13 @@ def test_sql_requests_need_ticker_metric_year():
     assert sql_requests(route("What was Apple net income?")) == []  # no year -> no exact lookup
 
 
+def test_rewrite_naming_one_company_does_not_leak_to_the_other():
+    plan = route("Compare NVIDIA and AMD research and development expense in 2024")
+    subs = build_subqueries(plan, "NVIDIA 10-K FY2024 Research and Development expense")
+    assert subs[0].text.startswith("NVIDIA")          # NVDA sub-query gets the rewrite
+    assert subs[1].text == plan.question               # AMD keeps the original wording
+
+
 # ---- grader -----------------------------------------------------------------------------
 
 def test_grader_empty_evidence_scores_zero_without_llm():
@@ -102,7 +109,7 @@ def test_good_evidence_stops_after_one_iteration():
     agent = make_agent(FakeText(), ScriptedLLM([{"score": 0.9}]))
     r = agent.run("Why did NVIDIA data center revenue grow?")
     assert r.iterations == 1
-    assert [t["step"] for t in r.trace] == ["plan", "retrieve", "grade", "answer"]
+    assert [t["step"] for t in r.trace] == ["plan", "retrieve", "grade", "answer", "verify"]
 
 
 def test_weak_evidence_rewrites_then_stops_when_good():
@@ -119,7 +126,20 @@ def test_loop_is_capped_at_max_iterations():
     llm = ScriptedLLM([{"score": 0.1, "rewritten_query": "again"}])
     r = make_agent(FakeText(), llm, max_iterations=3).run("Why did NVIDIA data center revenue grow?")
     assert r.iterations == 3
-    assert r.trace[-1]["step"] == "answer"
+    assert [t["step"] for t in r.trace][-2:] == ["answer", "verify"]
+
+
+class SameResultsText(FakeText):
+    def search(self, query, mode="hybrid", limit=10, filt=None):
+        self.calls.append((query, filt))
+        return [ev("fixed-1"), ev("fixed-2")]
+
+
+def test_stops_when_retry_finds_nothing_new():
+    llm = ScriptedLLM([{"score": 0.2, "rewritten_query": "again"}])
+    r = make_agent(SameResultsText(), llm, max_iterations=3).run("Why did NVIDIA data center revenue grow?")
+    assert r.iterations == 2   # not 3: round 2 added nothing
+    assert [t for t in r.trace if t["step"] == "retrieve"][1]["new_items"] == 0
 
 
 def test_empty_result_relaxes_year_filter():
@@ -142,6 +162,27 @@ def test_sql_facts_are_pinned_first():
     r = make_agent(FakeText(), ScriptedLLM([{"score": 0.9}]), sql=FakeSql()).run(
         "What was NVIDIA revenue in 2025?")
     assert r.package.items[0].modality == Modality.SQL
+
+
+def test_rewrite_naming_one_company_does_not_change_the_other_subquery():
+    plan = route("Compare NVIDIA and AMD research and development expense in 2024")
+    subs = build_subqueries(plan, "NVIDIA 10-K FY2024 Research and Development expense")
+    assert subs[0].text.startswith("NVIDIA 10-K")
+    assert subs[1].text == plan.question  # AMD keeps the original wording
+
+
+class FixedText(FakeText):
+    """Same chunks whatever the query, like the real run where retries returned identical evidence."""
+
+    def search(self, query, mode="hybrid", limit=10, filt=None):
+        self.calls.append((query, filt))
+        return [ev("fixed-1"), ev("fixed-2")]
+
+
+def test_stops_early_when_a_retry_finds_nothing_new():
+    llm = ScriptedLLM([{"score": 0.3, "rewritten_query": "NVIDIA again"}])
+    r = make_agent(FixedText(), llm, max_iterations=5).run("Why did NVIDIA data center revenue grow?")
+    assert r.iterations == 2  # round 2 added no new evidence, so no round 3
 
 
 def test_retriever_failure_is_logged_not_raised():
