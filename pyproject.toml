@@ -19,6 +19,7 @@ retrieval = ["qdrant-client>=1.9", "psycopg[binary]>=3.1", "rank-bm25>=0.2"]
 parsing = ["pymupdf>=1.24", "docling>=2.0", "beautifulsoup4>=4.12", "lxml>=5.0"]
 visual = ["pymupdf>=1.24", "pillow>=10.0", "colpali-engine>=0.3.5", "torch>=2.2"]
 agents = ["langgraph>=0.2", "langfuse>=2.0"]
+app = ["streamlit>=1.35"]
 
 [build-system]
 requires = ["hatchling"]

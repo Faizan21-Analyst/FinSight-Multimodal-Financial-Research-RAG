@@ -99,6 +99,7 @@ class FinSightAgent:
     @staticmethod
     def _log(state: AgentState, **rec: Any) -> list[dict]:
         trace = list(state.get("trace", []))
+        rec.setdefault("ts", round(time.time(), 3))  # when the step finished; the tracer derives step times
         trace.append(rec)
         log.info("agent step: %s", rec)
         return trace

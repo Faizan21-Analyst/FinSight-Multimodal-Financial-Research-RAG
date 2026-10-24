@@ -18,6 +18,7 @@ import io
 import json
 import re
 import time
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
@@ -29,6 +30,7 @@ from finsight.core.caching import DiskCache
 from finsight.core.exceptions import ConfigError, FinSightError
 from finsight.core.schemas import DocType, EvidenceItem, Modality, SourceRef, make_id
 from finsight.generation.numeric import UNIT_MULTIPLIERS, normalize_units
+from finsight.llm.client import LLMStats
 from finsight.vision.page_renderer import PageRecord
 
 SYSTEM_PROMPT = (
@@ -144,6 +146,15 @@ class VLMClient(Protocol):
     def complete(self, image_path: str, prompt: str, system: str) -> str: ...
 
 
+@dataclass
+class VLMStats(LLMStats):
+    """LLMStats plus the time spent sleeping on 429/5xx retries, so a slow chart read can be told apart
+    from a rate-limited one (seconds = HTTP time including those waits)."""
+
+    retries: int = 0
+    retry_wait_seconds: float = 0.0
+
+
 class GroqVLM:
     """Vision call to Groq, or to any OpenAI-compatible server via `base_url` (plain httpx, no SDK).
 
@@ -182,6 +193,7 @@ class GroqVLM:
         self.timeout = timeout
         self._client = client
         self._sleep = sleep
+        self.stats = VLMStats()
 
     @classmethod
     def _shrink_to_jpeg(cls, data: bytes) -> bytes:
@@ -217,6 +229,7 @@ class GroqVLM:
         if self.cache is not None:
             hit = self.cache.get(key)
             if hit is not None:
+                self.stats.cache_hits += 1
                 return hit["text"]
         if not self.api_key and "api.groq.com" in self.url:
             raise ConfigError("GROQ_API_KEY is not set (put it in .env)")
@@ -240,6 +253,7 @@ class GroqVLM:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         client = self._client or httpx.Client(timeout=self.timeout)
         resp = None
+        t0 = time.time()
         for attempt in range(self.retries + 1):
             resp = client.post(self.url, json=body, headers=headers)
             if resp.status_code not in (429, 500, 502, 503, 504) or (
@@ -251,12 +265,20 @@ class GroqVLM:
                     wait = float(resp.headers.get("retry-after", ""))
                 except ValueError:
                     wait = 2.0 ** (attempt + 1)
+                self.stats.retries += 1
+                self.stats.retry_wait_seconds += min(wait, 60.0)
                 self._sleep(min(wait, 60.0))
         if resp.status_code == 401:
             raise ConfigError("Groq rejected the API key (401). Check GROQ_API_KEY.")
         if resp.status_code != 200:
             raise ChartExtractionError(f"Groq error {resp.status_code}: {resp.text[:200]}")
-        text = resp.json()["choices"][0]["message"]["content"] or ""
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"] or ""
+        usage = data.get("usage") or {}
+        self.stats.calls += 1
+        self.stats.prompt_tokens += usage.get("prompt_tokens", 0)
+        self.stats.completion_tokens += usage.get("completion_tokens", 0)
+        self.stats.seconds += time.time() - t0
         if self.cache is not None:
             self.cache.set(key, {"text": text})
         return text

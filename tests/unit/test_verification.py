@@ -184,6 +184,43 @@ def test_answer_object_has_citations_and_trace():
     assert [c.evidence_id for c in a.citations] == ["a"] and a.trace[0]["judged_by"] == "llm"
 
 
+# ---- SQL-settled claims skip the LLM judge ----------------------------------------------
+
+def sql_pkg():
+    return EvidencePackage([ev("a", E1, "NVDA", Modality.SQL), ev("b", E2, "AMD", Modality.SQL), ev("c", E3, "AMD")])
+
+
+def test_plain_fact_citing_sql_is_settled_without_the_llm():
+    judge = FakeJudge()
+    v = verify("R&D Expense: $8.675 billion [E1]. NVIDIA R&D was $8.675 billion [E1].", judge, sql_pkg())
+    assert judge.calls == 0
+    assert all(c.verdict == Verdict.SUPPORTED and c.judged_by == "sql" for c in v.checks)
+    assert v.answer.confidence == Confidence.HIGH
+
+
+def test_comparison_claims_still_go_to_the_judge():
+    judge = FakeJudge()
+    v = verify("NVIDIA's $8.675 billion [E1] is higher than AMD's $6.456 billion [E2].", judge, sql_pkg())
+    assert judge.calls == 1 and v.checks[0].judged_by == "llm"
+
+
+def test_wrong_company_for_the_cited_fact_still_goes_to_the_judge():
+    judge = FakeJudge({1: "contradicted"})
+    v = verify("AMD R&D was $8.675 billion [E1].", judge, sql_pkg())
+    assert judge.calls == 1 and v.checks[0].verdict == Verdict.CONTRADICTED
+
+
+def test_text_evidence_is_never_settled_by_numbers_alone():
+    judge = FakeJudge()
+    verify("AMD R&D was $6.5 billion [E3].", judge, sql_pkg())
+    assert judge.calls == 1
+
+
+def test_wrong_number_against_sql_fact_is_still_flagged():
+    v = verify("NVIDIA R&D was $9.999 billion [E1].", FakeJudge(), sql_pkg())
+    assert "number_not_in_evidence" in v.checks[0].flags
+
+
 # ---- confidence rules -------------------------------------------------------------------
 
 def check(verdict=Verdict.SUPPORTED, flags=()):

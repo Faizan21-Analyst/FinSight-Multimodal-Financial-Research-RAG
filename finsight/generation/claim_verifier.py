@@ -16,6 +16,7 @@ Confidence comes from finsight.generation.confidence.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -27,6 +28,7 @@ from finsight.generation.claims import (
     ClaimNumber,
     checkable_numbers,
     extract_claims,
+    strip_labels,
     parse_labels,
 )
 from finsight.generation.confidence import ConfidenceResult, report_confidence, score_confidence
@@ -50,6 +52,29 @@ class Judgement(BaseModel):
 
 class JudgementBatch(BaseModel):
     judgements: list[Judgement]
+
+
+# Words that make a claim more than "this fact says this number": comparisons, trends, arithmetic.
+_NEEDS_JUDGE = re.compile(
+    r"\b(higher|lower|more|less|greater|larger|smaller|bigger|exceed\w*|increas\w*|decreas\w*|grew|grow\w*|"
+    r"declin\w*|fell|rose|than|versus|vs|ratio|growth|margin|total|combined|sum|difference|gap|change[sd]?)\b",
+    re.I)
+
+
+def sql_settled(text: str, cited) -> bool:
+    """True when a claim whose numbers already matched needs no LLM judge: it cites only XBRL facts (the
+    source of truth, structured), makes no comparison or arithmetic, and names no company other than the
+    one the cited facts belong to. Saves a Groq call on the common 'X's metric was $N [E1]' sentence."""
+    if not cited or any(i.modality.value != "sql" for i in cited):
+        return False
+    if _NEEDS_JUDGE.search(strip_labels(text)):
+        return False
+    from finsight.agents.router import TICKER_ALIASES  # local import: agents imports generation
+
+    tickers = {i.source.ticker for i in cited}
+    low = text.lower()
+    return not any(tk not in tickers and re.search(rf"\b{re.escape(alias.lower())}\b", low)
+                   for alias, tk in TICKER_ALIASES.items())
 
 
 def number_in_text(n: ClaimNumber, text: str) -> bool:
@@ -139,6 +164,9 @@ class ClaimVerifier:
                     else:
                         check.flags.append("number_not_in_evidence")
                         check.reason = f"{raws} not found in any evidence (invented or computed?)"
+                elif nums and sql_settled(text, cited):
+                    check.verdict, check.judged_by = Verdict.SUPPORTED, "sql"
+                    check.reason = "numbers match the cited XBRL fact"
                 elif self.llm is not None:
                     to_judge.append(len(checks))
                 elif nums:
